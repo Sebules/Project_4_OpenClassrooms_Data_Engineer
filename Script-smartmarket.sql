@@ -293,32 +293,179 @@ FROM logs_ventes_date lvd
 JOIN calendrier c ON lvd.detail::numeric = c.date
 ;
 
--- Récupérer les paramètres de configuration du serveur
-SELECT
-name,
-setting,
-unit,
-category,
-short_desc,
-extra_desc,
-context,
-vartype,
-source,
-min_val,
-max_val,
-enumvals,
-boot_val,
-reset_val,
-sourcefile,
-sourceline,
-pending_restart
-FROM pg_settings;
+-- Application des recommandations
 
--- Afficher les statistiques de la base de données
-SELECT * FROM pg_stat_database;
--- Afficher les statistiques des tables utilisateur
-SELECT * FROM pg_stat_user_tables;
--- Afficher les statistiques des index
-SELECT * FROM pg_stat_user_indexes;
--- Afficher les activités en cours
+-- mise en place clôture journalière des ventes
+CREATE TABLE controle_completude_ventes (
+id_controle SERIAL PRIMARY KEY,
+date_vente DATE NOT NULL,
+nb_ventes_base INTEGER,
+nb_ventes_logs INTEGER,
+ca_base NUMERIC(12,2),
+ca_logs NUMERIC(12,2),
+ecart_ca NUMERIC(12,2),
+statut VARCHAR(10) NOT NULL 
+	CHECK(statut IN('ANOMALIE', 'CONFORME')),
+date_controle TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+id_controleur VARCHAR,
+commentaires TEXT
+);
+
+DROP TABLE controle_completude_ventes;
+SELECT * FROM controle_completude_ventes;
+
+CREATE OR REPLACE PROCEDURE ca_ventes_chargees(p_date_vente TEXT,p_id_controleur VARCHAR)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+	v_nb_ventes_base INTEGER;
+	v_nb_ventes_logs INTEGER;
+	v_ca_base NUMERIC(12,2);
+	v_ca_logs NUMERIC(12,2);
+	v_statut VARCHAR(10);
+	v_commentaires TEXT;
+	--v_ pour indiquer qu'il s'agit de variables. p_ pour paramètre
+BEGIN
+	-- Nombre de ventes et CA réellement présents dans la table vente
+	SELECT
+	COUNT(*),
+	SUM(ROUND(p.prix::numeric, 2))
+INTO
+	v_nb_ventes_base,
+	v_ca_base
+FROM vente v
+JOIN produit p ON v.ean = p.ean
+JOIN calendrier c ON c.date = v.date
+WHERE CONCAT(c.jour,'/',c.mois,'/',c.annee) = p_date_vente;
+
+	-- Nombre de ventes et CA présents dans logs_ventes
+	SELECT
+	COUNT(DISTINCT lv.id_ligne),
+	SUM(ROUND(p.prix::numeric, 2))
+INTO
+	v_nb_ventes_logs,
+	v_ca_logs
+FROM (
+	-- on reconstitue une ligne ean en faisant pivoter toutes les données grâce à MAX (CASE WHEN)
+	SELECT
+		id_ligne,
+		"date",
+		MAX(CASE WHEN champs = 'EAN' THEN detail END) AS ean
+	FROM logs_ventes
+	GROUP BY id_ligne,"date"
+) lv
+JOIN produit p ON lv.ean = p.ean
+JOIN calendrier c ON c.date = lv."date"
+WHERE CONCAT(c.jour,'/',c.mois,'/',c.annee) = p_date_vente;
+
+-- attribution du statut
+IF v_nb_ventes_base = v_nb_ventes_logs
+	AND v_ca_base = v_ca_logs THEN
+	v_statut := 'CONFORME';
+	v_commentaires := 'Les ventes présentes en base correspondent aux insertions dans les logs';
+ELSE
+	v_statut := 'ANOMALIE';
+	v_commentaires := 'Un écart a été détecté entre les logs et la table vente.';
+END IF;
+
+-- Enregistrer les résultats dans la table de contrôle
+INSERT INTO controle_completude_ventes(
+	date_vente,
+	nb_ventes_base,
+	nb_ventes_logs,
+	ca_base,
+	ca_logs,
+	ecart_ca,
+	statut,
+	date_controle,
+	id_controleur,
+	commentaires 
+)
+VALUES (
+	p_date_vente::DATE,
+	v_nb_ventes_base,
+	v_nb_ventes_logs,
+	v_ca_base,
+	v_ca_logs,
+	v_ca_base - v_ca_logs,
+	v_statut,
+	CURRENT_TIMESTAMP,
+	p_id_controleur,
+	v_commentaires
+);
+END;
+$$;
+
+CALL ca_ventes_chargees('14/8/2024','jkuiueozbzk');
+CALL ca_ventes_chargees('15/8/2024','jkuiueozbzk');
+SELECT * FROM controle_completude_ventes;
+
+-- Séparer la date des ventes et la date d'insertion
+
+ALTER TABLE logs_ventes
+ADD COLUMN date_vente TEXT;
+
+UPDATE logs_ventes
+SET date_vente = (
+    CASE 
+        WHEN champs = 'Date' THEN detail
+    END
+);
+
+-- statistiques de la base de données 
+SELECT 
+	* 
+FROM pg_stat_database
+WHERE datname = 'smartmarket'; 
+
+-- statistiques des tables 
+SELECT * FROM pg_stat_user_tables; 
+-- Identifier les tables les plus modifiées
+SELECT
+    relname AS table_name,
+    n_tup_ins AS insertions,
+    n_tup_upd AS updates,
+    n_tup_del AS suppressions,
+    n_live_tup AS lignes_estimees
+FROM pg_stat_user_tables
+ORDER BY n_tup_ins + n_tup_upd + n_tup_del DESC;
+
+-- afficher les activités en cours 
 SELECT * FROM pg_stat_activity;
+-- identifier les requetes en cours
+SELECT
+    pid,
+    usename,
+    datname,
+    state,
+    query_start,
+    query
+FROM pg_stat_activity
+WHERE state <> 'idle';
+
+
+-- statistique des index
+SELECT * FROM pg_stat_user_indexes;
+
+-- Identifier les index peu ou pas utilisés
+SELECT
+    relname AS table_name,
+    indexrelname AS index_name,
+    idx_scan AS nombre_utilisations
+FROM pg_stat_user_indexes
+ORDER BY idx_scan ASC;
+
+
+DROP VIEW ca_arrondi;
+DROP VIEW ca_per_employe;
+
+ALTER TABLE produit
+ALTER COLUMN prix TYPE NUMERIC(12,2),
+ADD CONSTRAINT prix_positif CHECK (prix > 0);
+
+-- afficher les contraintes
+SELECT
+    constraint_name,
+    constraint_type
+FROM information_schema.table_constraints
+WHERE table_name = 'produit';
