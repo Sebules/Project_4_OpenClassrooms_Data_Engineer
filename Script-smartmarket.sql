@@ -469,3 +469,24 @@ SELECT
     constraint_type
 FROM information_schema.table_constraints
 WHERE table_name = 'produit';
+
+-- Restreindre les données personnes dans la couche BI
+CREATE OR REPLACE VIEW employe_bi AS(
+SELECT 
+id_employe,
+employe,
+date_debut
+FROM employe
+);
+
+CREATE OR REPLACE VIEW employe_bi_2 AS(
+SELECT 
+id_employe,
+employe,
+date_debut, 
+SUBSTRING(mail FROM 1 FOR 3) || '****' AS obscured_mail, 
+SUBSTRING(hash_mdp FROM 1 FOR 3) || '****' AS obscured_hash_mdp 
+FROM employe
+);
+
+SELECT * FROM employe_bi_2;
