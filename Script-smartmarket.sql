@@ -490,3 +490,454 @@ FROM employe
 );
 
 SELECT * FROM employe_bi_2;
+
+CREATE TABLE logs(
+id_user VARCHAR NOT NULL,
+date INTEGER NOT NULL,
+action VARCHAR(10) NOT NULL,
+table_insert VARCHAR(10) NOT NULL,
+id_ligne VARCHAR NOT NULL,
+champs VARCHAR(20),
+detail VARCHAR
+);
+
+SELECT * FROM logs;
+
+CREATE TABLE employe_test AS(
+SELECT * FROM employe
+);
+
+SELECT * FROM employe_test;
+SELECT * FROM logs_employe;
+
+CREATE TABLE logs_employe_test AS(
+SELECT
+id_user,
+date,
+action,
+id_ligne,
+champs,
+detail
+FROM logs_employe
+);
+
+SELECT * FROM logs_employe_test;
+
+ALTER TABLE logs_employe_test
+DROP COLUMN champs,
+DROP COLUMN detail;
+
+ALTER TABLE logs_employe_test
+ADD COLUMN commentaire TEXT ; -- ajout d’une colonne commentaire
+
+
+-- Automatisme pour compléter les tables logs
+-- Création de la fonction trigger pour logs_employer
+CREATE OR REPLACE FUNCTION logs_employe_trigger_function()
+RETURNS TRIGGER AS $$
+	BEGIN
+		IF TG_OP ='INSERT' THEN -- operation for which the trigger was fired: INSERT, UPDATE, DELETE, or TRUNCATE
+			INSERT INTO logs_employe_test (
+				id_user,
+				date,
+				action,
+				id_ligne,				
+				commentaire
+			)
+			VALUES (
+				CURRENT_USER, -- utilisateur PostgreSQL connecté
+				CURRENT_DATE - DATE '1899-12-30',
+				TG_OP,
+				NEW.id_employe,
+				'Nouvel employé'
+			);
+	
+			RETURN NEW;
+			
+		ELSIF TG_OP = 'UPDATE' THEN
+			INSERT INTO logs_employe_test (
+				id_user,
+				date,
+				action,
+				id_ligne,
+				commentaire
+			)
+			VALUES (
+				CURRENT_USER,
+				CURRENT_DATE - DATE '1899-12-30',
+				TG_OP,
+				OLD.id_employe, -- En cas d'update, l'id ne doit pas changer
+				'Modification mot de passe'
+			);
+	
+			RETURN NEW;
+			
+		ELSIF TG_OP = 'DELETE' THEN
+			INSERT INTO logs_employe_test (
+				id_user,
+				date,
+				action,
+				id_ligne,
+				commentaire
+			)
+			VALUES (
+				CURRENT_USER,
+				CURRENT_DATE - DATE '1899-12-30', -- Par exemple, pour le 14/8/2024 on a 45518
+				TG_OP,
+				OLD.id_employe,
+				'Départ employé'
+			);
+	
+			RETURN OLD;
+		END IF;
+		RETURN NULL;
+	END;
+$$ LANGUAGE plpgsql;
+		
+-- Création du trigger
+
+CREATE OR REPLACE TRIGGER logs_employe_trigger_test
+BEFORE INSERT OR UPDATE OR DELETE ON employe_test
+	FOR EACH ROW
+	EXECUTE FUNCTION logs_employe_trigger_function();
+
+SELECT * FROM employe_test;	
+SELECT * FROM logs_employe;
+SELECT * 
+FROM employe
+WHERE id_employe = 'f6cd8ba3485769b3ad9bab5b7725858e';
+INSERT INTO employe_test 
+	VALUES ('36hgdg561sklsll36s','sules','Seb','Ules',CURRENT_DATE - DATE '1899-12-30','lkjoib25skkh563slkhkjlk');
+
+UPDATE employe_test
+SET hash_mdp = '1211113565lklkj'
+WHERE id_employe = '6fa61d0ecae0b563fef18d36b2039c8e';
+
+INSERT INTO employe_test 
+	VALUES ('36hgdg561sklsll36UUKs','salesis','Seb','Alesis',CURRENT_DATE - DATE '1899-12-30','lkjoib25skkh563slkhkjlk');
+
+DELETE 
+FROM employe_test
+WHERE id_employe = '36hgdg561sklsll36UUKs';
+
+DELETE 
+FROM employe_test
+WHERE id_employe = '36hgdg561sklsll36s';
+
+ALTER TABLE employe_test
+ADD PRIMARY KEY (id_employe);
+
+INSERT INTO employe_test 
+	VALUES ('36hgdg561sklsll36s','sules','Seb','Ules',CURRENT_DATE - DATE '1899-12-30','lkjoib25skkh563slkhkjlk');
+
+INSERT INTO employe_test 
+	VALUES ('36hgdg561sklsll38s','mjouty','Marc','jouty',CURRENT_DATE - DATE '1899-12-30','lkjoib25skkh563slkhkjlk');
+
+UPDATE employe_test
+SET hash_mdp = '1211113565lklkj'
+WHERE id_employe = '36hgdg561sklsll38s';
+
+DELETE 
+FROM employe_test
+WHERE id_employe = '36hgdg561sklsll38s';
+
+SELECT * FROM logs_employe_test;
+
+-- Création de la table logs_ventes
+CREATE TABLE vente_test AS(SELECT * FROM vente);
+SELECT * FROM vente_test;
+
+ALTER TABLE vente_test
+ADD PRIMARY KEY (id_bdd);
+
+CREATE TABLE logs_ventes_test AS(SELECT * FROM logs_ventes);
+SELECT * FROM logs_ventes_test;
+
+ALTER TABLE logs_ventes_test
+ADD COLUMN customer_id VARCHAR(200),
+ADD COLUMN id_employe VARCHAR(200),
+ADD COLUMN ean VARCHAR(50),
+ADD COLUMN date_achat DATE;
+
+ALTER TABLE logs_ventes_test
+ADD COLUMN id_ticket VARCHAR(10);
+
+ALTER TABLE logs_ventes_test
+ALTER COLUMN date_achat TYPE VARCHAR
+USING date_achat::VARCHAR;
+
+ALTER TABLE logs_ventes_test
+DROP COLUMN date_vente;
+
+-- transposer des lignes en colonnes
+UPDATE logs_ventes_test
+SET customer_id =(
+	CASE 
+		WHEN champs = 'CUSTUMER_ID' THEN detail
+	END),
+	id_employe = (
+	CASE
+		WHEN champs = 'id_employe' THEN detail
+	END),
+	ean = (
+	CASE 
+		WHEN champs = 'EAN' THEN detail
+	END),
+	date_achat = (
+	CASE
+		WHEN champs = 'Date' THEN detail
+	END),
+	id_ticket = (
+	CASE
+		WHEN champs = 'ID ticket' THEN detail
+	END);
+
+ALTER TABLE logs_ventes_test
+DROP COLUMN table_insert,
+DROP COLUMN champs,
+DROP COLUMN detail
+;
+
+SELECT * FROM logs_ventes_test;
+
+CREATE TABLE logs_ventes_test_clean AS
+SELECT
+    MAX(id_user) AS id_user,
+	MAX(date) AS date_insertion,
+	MAX(action) AS action,
+	id_ligne,
+    MAX(customer_id) AS customer_id,
+    MAX(id_employe) AS id_employe,
+    MAX(ean) AS ean,
+    MAX(date_achat) AS date_achat,
+    MAX(id_ticket) AS id_ticket
+FROM logs_ventes_test
+GROUP BY id_ligne;
+
+DROP TABLE logs_ventes_test;
+
+ALTER TABLE logs_ventes_test_clean
+RENAME TO logs_ventes_test;
+
+ALTER TABLE logs_ventes_test
+ADD PRIMARY KEY (id_ligne);
+
+SELECT constraint_name
+FROM information_schema.table_constraints
+WHERE table_name = 'logs_ventes_test'
+AND constraint_type = 'PRIMARY KEY';
+
+ALTER TABLE logs_ventes_test
+DROP CONSTRAINT logs_ventes_test_pkey;
+
+-- Ajout de la clé étrangère ean de produit afin de s'assurer que le produit est bien connu
+/*
+ALTER TABLE logs_ventes_test
+ADD CONSTRAINT fk_logs_ventes_test_produit
+FOREIGN KEY (ean)
+REFERENCES produit(ean);
+*/
+
+SELECT * FROM vente;
+
+-- Création de la fonction trigger pour les logs vente
+
+CREATE OR REPLACE FUNCTION logs_ventes_trigger_function()
+RETURNS TRIGGER AS $$
+BEGIN
+	IF TG_OP = 'INSERT' THEN
+		INSERT INTO logs_ventes_test(
+			id_user,
+			date_insertion,
+			action,
+			id_ligne,
+			customer_id,
+			id_employe,
+			ean,
+			date_achat,
+			id_ticket
+		)
+		VALUES(
+			CURRENT_USER,
+			CURRENT_DATE - DATE '1899-12-30',
+			TG_OP,
+			NEW.id_bdd,
+			NEW.customer_id,
+			NEW.id_employe,
+			NEW.ean,
+			NEW.date,
+			NEW.id_ticket				
+		);
+		RETURN NEW;
+		
+	ELSIF TG_OP = 'DELETE' THEN
+		INSERT INTO logs_ventes_test(
+			id_user,
+			date_insertion,
+			action,
+			id_ligne,
+			customer_id,
+			id_employe,
+			ean,
+			date_achat,
+			id_ticket
+		)
+		VALUES(
+			CURRENT_USER,
+			CURRENT_DATE - DATE '1899-12-30',
+			TG_OP,
+			OLD.id_bdd,
+			OLD.customer_id,
+			OLD.id_employe,
+			OLD.ean,
+			OLD.date,
+			OLD.id_ticket				
+		);
+		RETURN OLD;
+	END IF;
+	RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER logs_ventes_trigger
+BEFORE INSERT OR  DELETE ON vente_test
+	FOR EACH ROW
+	EXECUTE FUNCTION logs_ventes_trigger_function();
+
+SELECT * FROM vente_test;
+
+ALTER TABLE vente_test
+ADD CONSTRAINT vente_test_produit_fk
+FOREIGN KEY (ean)
+REFERENCES produit(ean);
+
+ALTER TABLE vente_test
+ADD CONSTRAINT vente_test_employe_fk
+FOREIGN KEY (id_employe)
+REFERENCES employe(id_employe);
+
+ALTER TABLE vente_test
+ADD CONSTRAINT vente_test_client_fk
+FOREIGN KEY (customer_id)
+REFERENCES client(customer_id);
+
+INSERT INTO vente_test
+	VALUES('TESTXXXXX','CUST-G42Z6WE8QLWJ','a7ada0770091e838e3dcd45265282820','1857802002765',CURRENT_DATE-DATE '1899-12-30','t_test');
+
+SELECT * FROM vente_test
+WHERE id_bdd = 'TESTXXXXX';
+
+SELECT * FROM logs_ventes_test
+WHERE date_insertion = 46160;
+
+SELECT * FROM logs;
+
+
+-- Vérifions les dates insertion des données de ventes qui sont indiqués dans le log
+SELECT 
+l.table_insert,
+CONCAT(c.jour,'/',c.mois,'/',c.annee) AS date_insertion
+FROM 
+logs l
+JOIN calendrier c
+	ON l.date = c.date
+WHERE l.table_insert = 'Ventes'
+GROUP BY date_insertion,l.table_insert
+;
+ -- Vérification de l'écart de chiffre d'affaires
+WITH ventes_log_15 AS (
+SELECT
+l.id_ligne AS vente,
+CONCAT(c.jour,'/',c.mois,'/',c.annee) AS date_log,
+v.ean
+FROM logs l
+JOIN vente v ON l.id_ligne = v.id_bdd
+JOIN calendrier c ON l.date = c.date
+WHERE l.date = '45519' AND l.table_insert = 'Ventes'
+GROUP BY l.id_ligne,v.ean, date_log
+)
+
+SELECT
+vl.date_log,
+ROUND(SUM(p.prix::numeric),2) AS CA_update_15_aout
+FROM ventes_log_15 vl
+JOIN produit p
+ON vl.ean = p.ean
+GROUP BY vl.date_log
+;
+
+-- Création de la fonction trigger pour les logs clients
+CREATE TABLE logs_client_test AS ( SELECT * FROM logs_client);
+
+SELECT * FROM logs_client_test;
+
+ALTER TABLE logs_client_test
+DROP COLUMN table_insert;
+
+ALTER TABLE logs_client_test
+RENAME COLUMN date TO date_insertion;
+
+CREATE TABLE client_test AS ( SELECT * FROM client);
+SELECT * FROM client_test;
+
+CREATE OR REPLACE FUNCTION logs_client_trigger_function()
+RETURNS TRIGGER AS $$
+	BEGIN
+		IF TG_OP = 'INSERT' THEN
+			INSERT INTO logs_client_test(
+				id_user,
+				date_insertion,
+				action,
+				id_ligne,
+				champs,
+				detail
+			)
+			VALUES (
+				CURRENT_USER,
+				CURRENT_DATE - DATE '1899-12-30',
+				TG_OP,
+				NEW.customer_id,
+				'date_inscription',
+				CURRENT_DATE
+			);
+			RETURN NEW;
+		ELSIF TG_OP = 'DELETE' THEN
+			INSERT INTO logs_client_test(
+				id_user,
+				date_insertion,
+				action,
+				id_ligne,
+				champs,
+				detail
+			)
+			VALUES (
+				CURRENT_USER,
+				CURRENT_DATE - DATE '1899-12-30',
+				TG_OP,
+				OLD.customer_id,
+				'date_desinscription',
+				CURRENT_DATE
+			);
+			RETURN OLD;
+		END IF;
+		RETURN NULL;
+	END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER logs_client_trigger
+BEFORE INSERT OR  DELETE ON client_test
+	FOR EACH ROW
+	EXECUTE FUNCTION logs_client_trigger_function();
+
+SELECT * FROM client_test;
+
+INSERT INTO client_test
+	VALUES('CUST-test',CURRENT_DATE);
+INSERT INTO client_test
+	VALUES('CUST-test2',CURRENT_DATE);
+
+SELECT * FROM logs_client_test;
+
+DELETE FROM client_test
+WHERE customer_id = 'CUST-test2';
+	
