@@ -398,6 +398,7 @@ $$;
 
 CALL ca_ventes_chargees('14/8/2024','jkuiueozbzk');
 CALL ca_ventes_chargees('15/8/2024','jkuiueozbzk');
+CALL ca_ventes_chargees('14/8/2024','postgres');
 SELECT * FROM controle_completude_ventes;
 
 -- Séparer la date des ventes et la date d'insertion
@@ -940,4 +941,144 @@ SELECT * FROM logs_client_test;
 
 DELETE FROM client_test
 WHERE customer_id = 'CUST-test2';
-	
+
+CREATE TABLE logs_produits_test AS(
+SELECT * FROM logs_produits);
+
+ALTER TABLE logs_produits_test
+RENAME COLUMN date TO date_insertion;
+
+ALTER TABLE logs_produits_test
+DROP COLUMN table_insert;
+
+ALTER TABLE logs_produits_test
+ALTER COLUMN champs TYPE TEXT,
+ALTER COLUMN detail TYPE TEXT;
+
+CREATE TABLE produit_test AS(
+SELECT * FROM produit);
+
+ALTER TABLE produit_test
+ADD PRIMARY KEY (ean);
+
+SELECT * FROM logs_produits_test;
+
+SELECT * FROM produit_test;
+
+-- Création de la fonction trigger pour les logs produits
+CREATE OR REPLACE FUNCTION logs_produits_trigger_function()
+RETURNS TRIGGER AS $$
+DECLARE
+	v_champs TEXT;
+	v_detail TEXT;
+	BEGIN
+		IF TG_OP = 'INSERT' THEN
+			INSERT INTO logs_produits_test(
+				id_user,
+				date_insertion,
+				action,
+				id_ligne,
+				champs,
+				detail				
+			)
+			VALUES(
+				CURRENT_USER,
+				CURRENT_DATE - DATE '1899-12-30',
+				TG_OP,
+				NEW.ean,
+				'new',
+				CONCAT(NEW.libelle_produit, '-', NEW.prix)			
+			);
+			RETURN NEW;
+			
+		ELSIF TG_OP = 'UPDATE' THEN
+			v_champs:= CONCAT_WS(',',
+				CASE
+					WHEN OLD.libelle_produit IS DISTINCT FROM NEW.libelle_produit
+					THEN 'libelle produit'
+				END,
+				CASE
+					WHEN OLD.prix IS DISTINCT FROM NEW.prix
+					THEN 'prix'
+				END
+			);
+
+			v_detail := CONCAT_WS(',',
+				CASE
+					WHEN OLD.libelle_produit IS DISTINCT FROM NEW.libelle_produit
+					THEN NEW.libelle_produit
+				END,
+				CASE
+					WHEN OLD.prix IS DISTINCT FROM NEW.prix
+					THEN NEW.prix::TEXT
+				END
+			);
+			INSERT INTO logs_produits_test(
+				id_user,
+				date_insertion,
+				action,
+				id_ligne,
+				champs,
+				detail				
+			)
+			VALUES(
+				CURRENT_USER,
+				CURRENT_DATE - DATE '1899-12-30',
+				TG_OP,
+				OLD.ean,
+				v_champs,
+				v_detail			
+			);
+			RETURN OLD;
+		ELSIF TG_OP = 'DELETE' THEN
+			INSERT INTO logs_produits_test(
+				id_user,
+				date_insertion,
+				action,
+				id_ligne,
+				champs,
+				detail				
+			)
+			VALUES(
+				CURRENT_USER,
+				CURRENT_DATE - DATE '1899-12-30',
+				TG_OP,
+				OLD.ean,
+				NULL,
+				NULL			
+			);
+			RETURN OLD;
+		END IF;
+		RETURN NULL;
+	END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER logs_produits_trigger
+BEFORE INSERT OR UPDATE OR DELETE ON produit_test
+	FOR EACH ROW
+	EXECUTE FUNCTION logs_produits_trigger_function();
+
+SELECT * FROM produit_test;
+SELECT * FROM logs_produits_test;
+INSERT INTO produit_test
+	VALUES
+		('0000000','Produit test', 'test','500g de test',12.50),
+		('0000002','Produit test2', 'test2','500g de test2',122.50);
+
+UPDATE produit_test
+SET libelle_produit='Produit test update'
+WHERE ean='0000000';
+
+UPDATE produit_test
+SET prix= 12.00
+WHERE ean='0000002';
+
+UPDATE produit_test
+SET libelle_produit='50g de test',
+	prix = 2.50
+WHERE ean='0000000';
+
+DELETE FROM produit_test
+WHERE ean = '0000002';
+
+
