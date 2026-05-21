@@ -314,7 +314,7 @@ commentaires TEXT
 DROP TABLE controle_completude_ventes;
 SELECT * FROM controle_completude_ventes;
 
-CREATE OR REPLACE PROCEDURE ca_ventes_chargees(p_date_vente TEXT,p_id_controleur VARCHAR)
+CREATE OR REPLACE PROCEDURE ca_ventes_chargees(p_date_vente TEXT)
 LANGUAGE plpgsql
 AS $$
 DECLARE
@@ -324,6 +324,7 @@ DECLARE
 	v_ca_logs NUMERIC(12,2);
 	v_statut VARCHAR(10);
 	v_commentaires TEXT;
+	
 	--v_ pour indiquer qu'il s'agit de variables. p_ pour paramètre
 BEGIN
 	-- Nombre de ventes et CA réellement présents dans la table vente
@@ -351,7 +352,8 @@ FROM (
 		id_ligne,
 		"date",
 		MAX(CASE WHEN champs = 'EAN' THEN detail END) AS ean
-	FROM logs_ventes
+	FROM logs
+	WHERE table_insert = 'Ventes'
 	GROUP BY id_ligne,"date"
 ) lv
 JOIN produit p ON lv.ean = p.ean
@@ -390,15 +392,19 @@ VALUES (
 	v_ca_base - v_ca_logs,
 	v_statut,
 	CURRENT_TIMESTAMP,
-	p_id_controleur,
+	CURRENT_USER,
 	v_commentaires
 );
 END;
 $$;
+DROP PROCEDURE ca_ventes_chargees(text);
 
 CALL ca_ventes_chargees('14/8/2024','jkuiueozbzk');
 CALL ca_ventes_chargees('15/8/2024','jkuiueozbzk');
 CALL ca_ventes_chargees('14/8/2024','postgres');
+CALL ca_ventes_chargees('14/8/2024');
+CALL ca_ventes_chargees('15/8/2024');
+
 SELECT * FROM controle_completude_ventes;
 
 -- Séparer la date des ventes et la date d'insertion
@@ -490,7 +496,7 @@ SUBSTRING(hash_mdp FROM 1 FOR 3) || '****' AS obscured_hash_mdp
 FROM employe
 );
 
-SELECT * FROM employe_bi_2;
+SELECT * FROM employe_bi;
 
 CREATE TABLE logs(
 id_user VARCHAR NOT NULL,
